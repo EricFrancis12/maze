@@ -1,5 +1,8 @@
+import io
 import itertools
 from math import sqrt, asin, pi, ceil, sin, cos
+from PIL import Image
+from wand.image import Image as WandImage
 
 QUARTER = pi / 2
 HALF = pi
@@ -73,6 +76,26 @@ class SVGPath(object):
 
     def path(self):
         return f"""<path stroke-opacity="{self.opacity}" stroke-width="{self.stroke_width}" stroke="{self.colour}" d="{self.svg}" /> {self.dots}"""
+
+    def svg_frames(self):
+        words = self.svg.split(" ")
+        words.reverse()
+
+        svgs = []
+        wip_svg = []
+
+        for word in words:
+            wip_svg.append(word)
+            if word == "M" or word == "A":
+                wip_svg.reverse()
+                svg = " ".join(wip_svg)
+                svgs.append(svg.strip())
+
+                wip_svg = []
+
+        svgs.reverse()
+
+        return svgs
 
     def dot(self, x, y):
         a = self.round(x + self.S2)
@@ -572,7 +595,88 @@ class SVG(object):
         else:
             return f"{head} {self.walls.path()} {self.dots} </svg>"
 
+    def gif_frames(self):
+        w = self.width * self.S
+        h = self.height * self.S
+        viewBox = f"""viewBox="0 0 {w} {h}" """
+        head = f"""<svg id="maze" xmlns="http://www.w3.org/2000/svg" {viewBox} width="{w}px" height="{h}px" stroke-width="{self.stroke_width}" fill-opacity="0.0" stroke="black">"""
+
+        if self.solution:
+            over_frames = self.over_trace.svg_frames()
+            under_frames = self.under_trace.svg_frames()
+            combined_frames = merge_sort_svg_frames(
+                over_frames=over_frames, under_frames=under_frames
+            )
+
+            result = []
+            for i in range(1, len(combined_frames)):
+                # f"""<path stroke-opacity="{self.opacity}" stroke-width="{self.stroke_width}" stroke="{self.colour}" d="{svg}" /> {self.dots}"""
+                svg = f"""<path stroke-opacity="1" stroke-width="{self.stroke_width}" stroke="{self.over_trace.colour}" d="{' '.join(combined_frames[0:i])}" /> {self.dots}"""
+                result.append(f"{head} {self.walls.path()} {svg} {self.dots} </svg>")
+
+            return result
+        else:
+            return []
+
 
 def svg_render(grid, options):
     svg = SVG(grid, options)
     return svg.image()
+
+
+def merge_sort_svg_frames(over_frames, under_frames):
+    combined_frames = over_frames + under_frames
+
+    if len(combined_frames) == 0:
+        return []
+
+    result = [combined_frames[0]]
+    i = 1
+
+    while len(result) < len(combined_frames):
+        prev_end_x = result[-1].split(" ")[-2]
+        if prev_end_x[0] == "L":
+            prev_end_x = prev_end_x[1:]
+        prev_end_y = result[-1].split(" ")[-1]
+
+        next_frame = ""
+
+        for j, frame in enumerate(combined_frames):
+            x = frame.split(" ")[1]
+            y = frame.split(" ")[2]
+
+            if x == prev_end_x and y == prev_end_y:
+                next_frame = frame
+                i = j
+                break
+
+        if len(combined_frames) - 1 >= i + 1:
+            next_frame = combined_frames[i + 1]
+            i += 1
+
+        if next_frame == "":
+            break
+
+        result.append(next_frame)
+
+    return result
+
+
+def write_to_gif(grid, options):
+    svg = SVG(grid, options)
+    svg_list = svg.gif_frames()
+
+    frames = []
+
+    # Convert each SVG to an image
+    for svg_content in svg_list:
+        with WandImage(file=io.BytesIO(svg_content.encode("utf-8"))) as img:
+            png_data = img.make_blob("png")
+
+        image = Image.open(io.BytesIO(png_data))
+        frames.append(image)
+
+    if len(frames) > 0:
+        frames[0].save(
+            "output.gif", save_all=True, append_images=frames[1:], loop=0, duration=500
+        )

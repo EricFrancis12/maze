@@ -54,7 +54,7 @@ from docopt import docopt
 try:
     from renderers.pdf import pdf_render
     from renderers.text import text_render
-    from renderers.svg import svg_render
+    from renderers.svg import svg_render, write_to_gif
 except ImportError:
     from maze.renderers.pdf import pdf_render  # NOQA
     from maze.renderers.text import text_render  # NOQA
